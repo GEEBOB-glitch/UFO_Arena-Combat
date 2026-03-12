@@ -6,6 +6,7 @@ import random
 import math
 from player import Player
 from level import Level
+from powerups import Powerup, RapidFirePowerup, ScorePowerup
 
 pygame.init()
 
@@ -25,10 +26,13 @@ player = Player(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
 player.is_ufo_mode = True
 player.bullets = []  # Initialize bullets list
 player.boost = False  # Initialize boost flag
-player.vel_y = 0  # Disable vertical velocity
+player.vel_y = 1  # Disable vertical velocity
 player.gravity_enabled = False  # Disable gravity
 player.last_shot = 0  # Track last shot time
+player.rapid_fire = False
+player.rapid_fire_end_time = 0
 enemies = []
+powerups = []
 score = 0
 start_time = pygame.time.get_ticks()
 paused = False
@@ -65,6 +69,11 @@ def spawn_enemy():
         enemies.append(enemy)
     except Exception as e:
         print(f"Error spawning enemy: {e}")
+
+def spawn_powerup(x, y):
+    """Spawn a random powerup at position"""
+    powerup_type = random.choice([RapidFirePowerup, ScorePowerup])
+    powerups.append(powerup_type(x, y))
 
 def update_enemies():
     """Update all enemies"""
@@ -107,14 +116,18 @@ def update_enemies():
                 combo_timer = 120
                 bonus = 10 + (combo * 5)
                 score += bonus
+                # Spawn powerup 30% of the time
+                if random.random() < 0.3:
+                    spawn_powerup(enemy['x'], enemy['y'])
                 continue
             
             # Check collision with player
             player_dist = math.sqrt((player.rect.centerx - enemy['x'])**2 + (player.rect.centery - enemy['y'])**2)
             if player_dist < 40:
-                # Removed lives reduction; directly set game over
-                game_over = True
-                game_over_time = pygame.time.get_ticks()
+                # Check if player is invincible
+                if not getattr(player, "invincible", False):
+                    game_over = True
+                    game_over_time = pygame.time.get_ticks()
         except Exception as e:
             print(f"Error updating enemy: {e}")
             if enemy in enemies:
@@ -143,6 +156,24 @@ def create_bullet(x, y):
     bullet['radius'] = 4
     player.bullets.append(bullet)
 
+def update_powerups():
+    """Update powerups and check collection"""
+    global score
+    
+    for powerup in powerups[:]:
+        if not powerup.update():
+            powerups.remove(powerup)
+            continue
+        
+        # Check collection by player
+        dist = math.sqrt((powerup.x - player.rect.centerx)**2 + (powerup.y - player.rect.centery)**2)
+        if dist < 35:
+            if isinstance(powerup, ScorePowerup):
+                score += 50
+            else:
+                powerup.apply(player)
+            powerups.remove(powerup)
+
 running = True
 while running:
     clock.tick(FPS)
@@ -158,6 +189,7 @@ while running:
                 # restart explicitly
                 game_over = False
                 enemies = []
+                powerups = []
                 score = 0
                 combo = 0
                 start_time = pygame.time.get_ticks()
@@ -165,6 +197,7 @@ while running:
                 enemy_spawn_counter = 0
                 player.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
                 player.bullets = []
+                player.rapid_fire = False
             if not paused and not game_over:
                 if event.key == pygame.K_SPACE:
                     player.boost = True
@@ -201,7 +234,8 @@ while running:
             # Rapid fire with mouse click held
             current_time = pygame.time.get_ticks()
             mouse_buttons = pygame.mouse.get_pressed()
-            if mouse_buttons[0] and current_time - player.last_shot > 50:  # Mouse-only firing
+            fire_cooldown = 20 if player.rapid_fire else 50  # Faster when rapid fire active
+            if mouse_buttons[0] and current_time - player.last_shot > fire_cooldown:  # Mouse-only firing
                 create_bullet(player.rect.centerx, player.rect.centery)
                 player.last_shot = current_time
         
@@ -218,6 +252,7 @@ while running:
                     player.bullets.remove(bullet)
             
             update_enemies()
+            update_powerups()
             
             # Combo timer
             if combo_timer > 0:
@@ -236,6 +271,10 @@ while running:
             elapsed_s = (pygame.time.get_ticks() - start_time) / 1000.0
             difficulty = elapsed_s / 15.0
     
+    # Check if rapid fire has expired (outside paused check)
+    if player.rapid_fire and pygame.time.get_ticks() > player.rapid_fire_end_time:
+        player.rapid_fire = False
+    
     # Draw
     screen.fill((20, 20, 50))
     
@@ -249,6 +288,11 @@ while running:
         # Draw enemies
         for enemy in enemies:
             pygame.draw.circle(screen, (255, 100, 100), (int(enemy['x']), int(enemy['y'])), enemy['radius'])
+        
+        # Draw powerups
+        for powerup in powerups:
+            pygame.draw.circle(screen, powerup.get_color(), (int(powerup.x), int(powerup.y)), powerup.radius)
+            pygame.draw.circle(screen, (255, 255, 255), (int(powerup.x), int(powerup.y)), powerup.radius, 2)
         
         # Draw bullets
         if player.bullets:
@@ -275,12 +319,12 @@ while running:
             combo_text = font.render(f"COMBO x{combo}!", True, combo_color)
             screen.blit(combo_text, (SCREEN_WIDTH - 250, 10))
         
-        # Draw invincibility status
-        if getattr(player, "invincible", False):
-            remaining_ms = max(0, player.invincible_end_time - pygame.time.get_ticks())
+        # Draw rapid fire status
+        if player.rapid_fire:
+            remaining_ms = max(0, player.rapid_fire_end_time - pygame.time.get_ticks())
             remaining_s = remaining_ms / 1000.0
-            inv_text = small_font.render(f"Invincible: {remaining_s:.1f}s", True, (0, 255, 0))
-            screen.blit(inv_text, (10, 120))
+            rapid_text = small_font.render(f"Rapid Fire: {remaining_s:.1f}s", True, (255, 200, 100))
+            screen.blit(rapid_text, (10, 120))
         
         if paused:
             pause_surf = font.render("Paused (press C to resume)", True, (255, 255, 255))
