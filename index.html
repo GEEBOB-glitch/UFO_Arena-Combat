@@ -3,25 +3,78 @@
 <head>
 <meta charset="UTF-8">
 <title>UFO Arena Combat</title>
+
 <style>
 body { margin:0; background: green; overflow:hidden; }
 canvas { display:block; margin:auto; background:#141432; }
-</style>
-    
 
-<a href="https://geebob-glitch.github.io/webs/" target="_blank">
-<br>Check out my websites here:
-</a>
+/* MOBILE CONTROLS */
+#controls {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    display: none;
+    justify-content: space-between;
+}
+
+#joystick {
+    width: 120px;
+    height: 120px;
+    margin-left: 20px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 50%;
+    position: relative;
+    touch-action: none;
+}
+
+#stick {
+    width: 50px;
+    height: 50px;
+    background: cyan;
+    border-radius: 50%;
+    position: absolute;
+    left: 35px;
+    top: 35px;
+}
+
+#buttons {
+    margin-right: 20px;
+}
+
+button {
+    padding: 15px;
+    font-size: 16px;
+    margin: 5px;
+}
+</style>
 </head>
+
 <body>
+
 <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<!-- MOBILE UI -->
+<div id="controls">
+  <div id="joystick"><div id="stick"></div></div>
+  <div id="buttons">
+    <button id="shootBtn">Shoot</button>
+    <button id="boostBtn">Boost</button>
+  </div>
+</div>
+
 <script>
+
+/* --------- DEVICE DETECTION --------- */
+const isMobile = "ontouchstart" in window;
+if(isMobile){
+    document.getElementById("controls").style.display = "flex";
+}
 
 /* --------- PLAYER --------- */
 class Player {
     constructor(x,y){
         this.x=x; this.y=y; this.radius=20;
-        this.speed=4; this.boost=false;
+        this.speed=4;
         this.bullets=[];
         this.rapid_fire=false;
         this.rapid_fire_end=0;
@@ -40,12 +93,13 @@ class Bullet {
 /* --------- ENEMY --------- */
 class Enemy {
     constructor(x,y,speed){
-        this.x=x; this.y=y; this.speed=speed; this.radius=12; this.health=1;
+        this.x=x; this.y=y; this.speed=speed;
+        this.radius=12; this.health=1;
     }
     moveToward(player){
         let dx=player.x-this.x;
         let dy=player.y-this.y;
-        let dist=Math.sqrt(dx*dx+dy*dy);
+        let dist=Math.hypot(dx,dy);
         if(dist>0){
             this.x+=dx/dist*this.speed;
             this.y+=dy/dist*this.speed;
@@ -63,7 +117,7 @@ class Powerup {
         if(this.type=="rapid"){
             player.rapid_fire=true;
             player.rapid_fire_end=Date.now()+5000;
-        } else if(this.type=="score"){
+        } else {
             score+=50;
         }
     }
@@ -76,218 +130,181 @@ class Powerup {
 const canvas=document.getElementById("gameCanvas");
 const ctx=canvas.getContext("2d");
 
-let player=new Player(canvas.width/2,canvas.height/2);
-let enemies=[];
-let powerups=[];
-let score=0;
-let combo=0;
-let combo_timer=0;
+let player=new Player(400,300);
+let enemies=[], powerups=[];
+let score=0, combo=0, combo_timer=0;
 let start_time=Date.now();
-let game_over=false;
-let paused=false;
-let difficulty=0;
-let enemy_spawn_counter=0;
+let game_over=false, paused=false;
+let difficulty=0, enemy_spawn_counter=0;
 
 const keys={};
 document.addEventListener("keydown",e=>keys[e.key]=true);
 document.addEventListener("keyup",e=>keys[e.key]=false);
 
-/* --------- HELPER FUNCTIONS --------- */
+/* --------- JOYSTICK --------- */
+let joyX=0, joyY=0;
+
+if(isMobile){
+    const joystick=document.getElementById("joystick");
+    const stick=document.getElementById("stick");
+    let dragging=false;
+
+    joystick.addEventListener("touchstart",()=>dragging=true);
+
+    joystick.addEventListener("touchend",()=>{
+        dragging=false;
+        joyX=joyY=0;
+        stick.style.left="35px";
+        stick.style.top="35px";
+    });
+
+    joystick.addEventListener("touchmove",e=>{
+        if(!dragging) return;
+
+        const rect=joystick.getBoundingClientRect();
+        const t=e.touches[0];
+
+        let x=t.clientX-rect.left-60;
+        let y=t.clientY-rect.top-60;
+
+        let dist=Math.hypot(x,y);
+        let max=40;
+
+        if(dist>max){
+            x=x/dist*max;
+            y=y/dist*max;
+        }
+
+        joyX=x/max;
+        joyY=y/max;
+
+        stick.style.left=(x+35)+"px";
+        stick.style.top=(y+35)+"px";
+    });
+
+    document.getElementById("shootBtn").ontouchstart=()=>mouseDown=true;
+    document.getElementById("shootBtn").ontouchend=()=>mouseDown=false;
+
+    document.getElementById("boostBtn").ontouchstart=()=>keys[" "]=true;
+    document.getElementById("boostBtn").ontouchend=()=>keys[" "]=false;
+}
+
+/* --------- SPAWN --------- */
 function spawnEnemy(){
-    let side=["top","bottom","left","right"][Math.floor(Math.random()*4)];
+    let side=["top","bottom","left","right"][Math.random()*4|0];
     let x,y;
-    if(side=="top"){ x=Math.random()*canvas.width; y=-30; }
-    else if(side=="bottom"){ x=Math.random()*canvas.width; y=canvas.height+30; }
-    else if(side=="left"){ x=-30; y=Math.random()*canvas.height; }
-    else { x=canvas.width+30; y=Math.random()*canvas.height; }
+
+    if(side=="top"){x=Math.random()*800;y=-30;}
+    else if(side=="bottom"){x=Math.random()*800;y=630;}
+    else if(side=="left"){x=-30;y=Math.random()*600;}
+    else {x=830;y=Math.random()*600;}
+
     enemies.push(new Enemy(x,y,1.5+difficulty*0.2));
 }
 
-function spawnPowerup(x,y){
-    let type=Math.random()<0.5?"rapid":"score";
-    powerups.push(new Powerup(x,y,type));
-}
-
 /* --------- GAME LOOP --------- */
+let mouseX=0, mouseY=0, mouseDown=false;
+
+canvas.onmousemove=e=>{
+    mouseX=e.offsetX;
+    mouseY=e.offsetY;
+};
+canvas.onmousedown=()=>mouseDown=true;
+canvas.onmouseup=()=>mouseDown=false;
+
 function gameLoop(){
-    requestAnimationFrame(gameLoop);
-    // Update
-    if(!paused && !game_over){
-        // Player movement
-        let dx=0, dy=0;
-        if(keys["a"]) dx=-player.speed;
-        if(keys["d"]) dx=player.speed;
-        if(keys["w"]) dy=-player.speed;
-        if(keys["s"]) dy=player.speed;
-        if(keys[" "]){ dx*=1.5; dy*=1.5; }
-        player.x=Math.max(10, Math.min(player.x+dx, canvas.width-10));
-        player.y=Math.max(10, Math.min(player.y+dy, canvas.height-10));
+requestAnimationFrame(gameLoop);
 
-        // Shooting
-        let now=Date.now();
-        if(mouseDown && now-player.last_shot>(player.rapid_fire?20:50)){
-            let dxm=mouseX-player.x, dym=mouseY-player.y;
-            let dist=Math.sqrt(dxm*dxm+dym*dym);
-            let vx=(dxm/dist)*8;
-            let vy=(dym/dist)*8;
-            player.bullets.push(new Bullet(player.x,player.y,vx,vy));
-            player.last_shot=now;
-        }
+if(!paused && !game_over){
 
-        // Update bullets
-        for(let i=player.bullets.length-1;i>=0;i--){
-            let b=player.bullets[i];
-            b.x+=b.vx; b.y+=b.vy;
-            if(b.x<-10||b.x>canvas.width+10||b.y<-10||b.y>canvas.height+10){
-                player.bullets.splice(i,1);
+    // MOVEMENT (keyboard + joystick)
+    let dx = joyX * player.speed;
+    let dy = joyY * player.speed;
+
+    if(keys["a"]) dx=-player.speed;
+    if(keys["d"]) dx=player.speed;
+    if(keys["w"]) dy=-player.speed;
+    if(keys["s"]) dy=player.speed;
+
+    if(keys[" "]){ dx*=1.5; dy*=1.5; }
+
+    player.x=Math.max(10,Math.min(player.x+dx,790));
+    player.y=Math.max(10,Math.min(player.y+dy,590));
+
+    // SHOOT
+    let now=Date.now();
+    if(mouseDown && now-player.last_shot>(player.rapid_fire?20:50)){
+        let dxm=mouseX-player.x, dym=mouseY-player.y;
+        let dist=Math.hypot(dxm,dym)||1;
+        player.bullets.push(new Bullet(player.x,player.y,dxm/dist*8,dym/dist*8));
+        player.last_shot=now;
+    }
+
+    // BULLETS
+    player.bullets=player.bullets.filter(b=>{
+        b.x+=b.vx; b.y+=b.vy;
+        return b.x>-10&&b.x<810&&b.y>-10&&b.y<610;
+    });
+
+    // ENEMIES
+    enemies.forEach(e=>e.moveToward(player));
+
+    enemies=enemies.filter(e=>{
+        for(let b of player.bullets){
+            if(Math.hypot(b.x-e.x,b.y-e.y)<25){
+                e.health--;
             }
         }
-
-        // Update enemies
-        for(let i=enemies.length-1;i>=0;i--){
-            let e=enemies[i];
-            e.moveToward(player);
-
-            // Bullet collision
-            for(let j=player.bullets.length-1;j>=0;j--){
-                let b=player.bullets[j];
-                if(Math.hypot(b.x-e.x,b.y-e.y)<25){
-                    e.health-=1;
-                    player.bullets.splice(j,1);
-                }
-            }
-            if(e.health<=0){
-                enemies.splice(i,1);
-                combo+=1;
-                combo_timer=120;
-                score+=10+combo*5;
-                if(Math.random()<0.3) spawnPowerup(e.x,e.y);
-            }
-
-            // Player collision
-            if(Math.hypot(player.x-e.x,player.y-e.y)<40){
-                game_over=true;
-            }
+        if(e.health<=0){
+            score+=10;
+            return false;
         }
-
-        // Update powerups
-        for(let i=powerups.length-1;i>=0;i--){
-            let p=powerups[i];
-            if(Math.hypot(player.x-p.x,player.y-p.y)<35){
-                p.apply(player);
-                powerups.splice(i,1);
-            }
+        if(Math.hypot(player.x-e.x,player.y-e.y)<40){
+            game_over=true;
         }
+        return true;
+    });
 
-        // Combo timer
-        if(combo_timer>0) combo_timer--; else combo=0;
-
-        // Spawn enemies
-        enemy_spawn_counter++;
-        let spawn_rate=Math.max(20,100-Math.floor(difficulty*8));
-        if(enemy_spawn_counter>spawn_rate){
-            enemy_spawn_counter=0; spawnEnemy();
-        }
-
-        // Difficulty over time
-        difficulty=(Date.now()-start_time)/15000;
-
-        // Rapid fire expiry
-        if(player.rapid_fire && Date.now()>player.rapid_fire_end) player.rapid_fire=false;
+    // SPAWN
+    enemy_spawn_counter++;
+    if(enemy_spawn_counter>Math.max(20,100-difficulty*8)){
+        enemy_spawn_counter=0;
+        spawnEnemy();
     }
 
-    // Draw
-    ctx.fillStyle="#141432"; ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    // Grid background
-    ctx.strokeStyle="#28284A"; ctx.lineWidth=1;
-    for(let x=0;x<canvas.width;x+=50) ctx.beginPath(),ctx.moveTo(x,0),ctx.lineTo(x,canvas.height),ctx.stroke();
-    for(let y=0;y<canvas.height;y+=50) ctx.beginPath(),ctx.moveTo(0,y),ctx.lineTo(canvas.width,y),ctx.stroke();
-
-    // Draw enemies
-    for(let e of enemies){
-        ctx.fillStyle="red";
-        ctx.beginPath();
-        ctx.arc(e.x,e.y,e.radius,0,Math.PI*2); ctx.fill();
-    }
-
-    // Draw powerups
-    for(let p of powerups){
-        ctx.fillStyle=p.getColor();
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.radius,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle="white"; ctx.lineWidth=2;
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.radius,0,Math.PI*2); ctx.stroke();
-    }
-
-    // Draw bullets
-    for(let b of player.bullets){
-        ctx.fillStyle="lime"; ctx.beginPath(); ctx.arc(b.x,b.y,b.radius,0,Math.PI*2); ctx.fill();
-    }
-
-    // Draw player
-    ctx.fillStyle="cyan"; ctx.beginPath(); ctx.arc(player.x,player.y,player.radius,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle="lightcyan"; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.arc(player.x,player.y,player.radius,0,Math.PI*2); ctx.stroke();
-
-    // Draw HUD
-    ctx.fillStyle="white"; ctx.font="20px sans-serif";
-    ctx.fillText("Score: "+score,10,30);
-    let elapsed=Math.floor((Date.now()-start_time)/1000);
-    ctx.fillText("Time: "+elapsed+"s",10,60);
-    ctx.fillText("Enemies: "+enemies.length,10,90);
-    if(combo>0){
-        ctx.fillStyle=combo_timer>60?"yellow":"orange";
-        ctx.fillText("Combo x"+combo,canvas.width-150,30);
-    }
-    if(player.rapid_fire){
-        ctx.fillStyle="orange";
-        ctx.fillText("Rapid Fire: "+((player.rapid_fire_end-Date.now())/1000).toFixed(1)+"s",10,120);
-    }
-
-    // Pause overlay
-    if(paused){
-        ctx.fillStyle="rgba(0,0,0,0.6)";
-        ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle="white";
-        ctx.font="24px sans-serif";
-        ctx.fillText("Paused (Press C to resume)",canvas.width/2-150,canvas.height/2);
-        ctx.fillText("controls:(wasd)move (aim/shoot)mouse left-click (space)speed boost ",canvas.width/5-100,canvas.height/4);
-    }
-
-    // Game over overlay
-    if(game_over){
-        ctx.fillStyle="rgba(0,0,0,0.8)";
-        ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle="red"; ctx.font="36px sans-serif";
-        ctx.fillText("YOU DIED!",canvas.width/2-80,canvas.height/2-40);
-        ctx.fillStyle="white"; ctx.font="24px sans-serif";
-        ctx.fillText("Final Score: "+score,canvas.width/2-80,canvas.height/2);
-        ctx.fillText("Press R to restart",canvas.width/2-90,canvas.height/2+40);
-       ctx.fillText("Miracles are possible, this ^is one of them!",canvas.width/3-90,canvas.height/2+20);
-    }
+    difficulty=(Date.now()-start_time)/15000;
 }
 
-/* --------- MOUSE HANDLING --------- */
-let mouseX=0, mouseY=0, mouseDown=false;
-canvas.addEventListener("mousemove",e=>{ mouseX=e.offsetX; mouseY=e.offsetY; });
-canvas.addEventListener("mousedown",e=>{ mouseDown=true; });
-canvas.addEventListener("mouseup",e=>{ mouseDown=false; });
+// DRAW
+ctx.fillStyle="#141432";
+ctx.fillRect(0,0,800,600);
 
-/* --------- KEY HANDLING --------- */
+// PLAYER
+ctx.fillStyle="cyan";
+ctx.beginPath();
+ctx.arc(player.x,player.y,20,0,Math.PI*2);
+ctx.fill();
+
+// HUD
+ctx.fillStyle="white";
+ctx.fillText("Score: "+score,10,20);
+
+if(game_over){
+    ctx.fillStyle="red";
+    ctx.font="30px sans-serif";
+    ctx.fillText("YOU DIED",300,300);
+}
+
+}
+
 document.addEventListener("keydown",e=>{
-    if(e.key=="c") paused=!paused;
     if(e.key=="r" && game_over){
-        // Restart
-        player=new Player(canvas.width/2,canvas.height/2);
-        enemies=[];
-        powerups=[];
-        score=0; combo=0; start_time=Date.now();
-        game_over=false; difficulty=0; enemy_spawn_counter=0;
+        location.reload();
     }
 });
 
 gameLoop();
-</script>
 
+</script>
 </body>
 </html>
