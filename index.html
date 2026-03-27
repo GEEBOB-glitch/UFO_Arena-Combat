@@ -18,7 +18,7 @@ canvas { display:block; margin:auto; background:#141432; }
 <br>Check out more from Geebob inc. here: 
 </a>
 
-<canvas id="gameCanvas" width="800" height="600"></canvas>
+<canvas id="gameCanvas" width="800" height="900"></canvas>
 <script>
 
 /* --------- PLAYER --------- */
@@ -78,7 +78,7 @@ class Powerup {
 
 /* --------- GAME SETUP --------- */
 const canvas=document.getElementById("gameCanvas");
-const ctx=canvas.getContext("2d");
+const ctx=canvas.getContext("3d");
 
 let player=new Player(canvas.width/2,canvas.height/2);
 let enemies=[];
